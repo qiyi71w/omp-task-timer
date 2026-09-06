@@ -1,0 +1,33 @@
+{
+  "name": "omp-task-timer",
+  "version": "0.1.0",
+  "description": "Show elapsed time and outcome for Oh My Pi tasks.",
+  "type": "module",
+  "license": "MIT",
+  "author": "qiyi71w",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qiyi71w/omp-task-timer.git"
+  },
+  "homepage": "https://github.com/qiyi71w/omp-task-timer#readme",
+  "bugs": {
+    "url": "https://github.com/qiyi71w/omp-task-timer/issues"
+  },
+  "keywords": [
+    "oh-my-pi",
+    "omp",
+    "omp-plugin",
+    "extension",
+    "task-timer"
+  ],
+  "files": [
+    "task-duration.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "omp": {
+    "extensions": [
+      "./task-duration.ts"
+    ]
+  }
+}
