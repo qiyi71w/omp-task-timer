@@ -1,8 +1,22 @@
+<div align="center">
+
 # OMP Task Timer
 
-A small [Oh My Pi](https://github.com/can1357/oh-my-pi) extension that shows how long each task ran and how it ended.
+Show elapsed time and outcomes for [Oh My Pi](https://github.com/can1357/oh-my-pi) tasks.
 
-The result stays above the editor until the next request starts. It uses the active OMP theme's muted text color, so it remains visible without competing with the conversation.
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
+[![npm version](https://img.shields.io/npm/v/omp-task-timer?style=flat-square)](https://www.npmjs.com/package/omp-task-timer)
+[![npm downloads](https://img.shields.io/npm/dm/omp-task-timer?style=flat-square)](https://www.npmjs.com/package/omp-task-timer)
+[![license](https://img.shields.io/npm/l/omp-task-timer?style=flat-square)](./LICENSE)
+
+</div>
+
+`omp-task-timer` shows task duration and outcome in one muted line above the OMP editor. The line disappears when the next request starts.
+
+```text
+✓ Task finished · 12s
+```
 
 ## Install
 
@@ -10,9 +24,10 @@ The result stays above the editor until the next request starts. It uses the act
 omp plugin install omp-task-timer
 ```
 
-Restart OMP after installation so the extension is loaded.
+> [!IMPORTANT]
+> OMP loads extensions at startup. Restart OMP after installing, updating, or removing this package.
 
-## Task outcomes
+## Results
 
 | Outcome | Display |
 | --- | --- |
@@ -20,27 +35,42 @@ Restart OMP after installation so the extension is loaded.
 | Failed | `✗ Task failed · 12s` |
 | Interrupted with `Esc` | `■ Task interrupted · 12s` |
 
-Automatic continuations remain part of the same timer. The previous result is cleared when the next request starts.
+The entire result uses the active OMP theme's `muted` text color.
 
-Durations are rounded to the nearest second and formatted as seconds, minutes, or hours.
+## Timing rules
 
-## Update or remove
+- Timing starts when OMP accepts a request.
+- Automatic continuations do not reset the timer.
+- Durations are rounded to the nearest second and shown as seconds, minutes, or hours.
+- A new request clears the previous result before the agent starts.
+
+> [!NOTE]
+> The result appears only when the active OMP mode provides UI widgets.
+
+## Manage the plugin
+
+Update:
 
 ```bash
 omp plugin upgrade omp-task-timer
+```
+
+Remove:
+
+```bash
 omp plugin uninstall omp-task-timer
 ```
 
-Restart OMP after changing the installed plugin.
-
 ## Local development
 
-From this repository:
-
 ```bash
+git clone https://github.com/qiyi71w/omp-task-timer.git
+cd omp-task-timer
 omp plugin link .
 ```
 
-Restart OMP, then run a normal task to exercise the extension in the TUI.
+Restart OMP, then run any task in the TUI to check the extension. The package ships one TypeScript file and has no runtime dependencies.
+
+## Compatibility
 
 Tested with OMP 18.1.11.
