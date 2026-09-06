@@ -46,7 +46,11 @@ export default function taskDuration(pi: ExtensionAPI): void {
 		}
 		if (!completedNormally) return;
 
-		ctx.ui.notify(`✓ Task finished · ${formatDuration(performance.now() - taskStartedAt)}`, "info");
+		ctx.ui.setWidget(
+			"omp-task-timer.duration",
+			[`✓ Task finished · ${formatDuration(performance.now() - taskStartedAt)}`],
+			{ placement: "belowEditor" },
+		);
 	});
 
 	pi.on("session_shutdown", reset);
