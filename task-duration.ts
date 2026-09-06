@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
+const WIDGET_KEY = "omp-task-timer.duration";
+
 function formatDuration(elapsedMs: number): string {
 	const totalSeconds = Math.max(0, Math.round(elapsedMs / 1000));
 	const seconds = totalSeconds % 60;
@@ -21,7 +23,8 @@ export default function taskDuration(pi: ExtensionAPI): void {
 		startedAt = undefined;
 	};
 
-	pi.on("before_agent_start", () => {
+	pi.on("before_agent_start", (_event, ctx) => {
+		if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
 		if (startedAt === undefined) pendingStartedAt = performance.now();
 	});
 
@@ -37,19 +40,29 @@ export default function taskDuration(pi: ExtensionAPI): void {
 		reset();
 		if (taskStartedAt === undefined || !ctx.hasUI) return;
 
-		let completedNormally = false;
+		let resultLabel: string | undefined;
 		for (let index = event.messages.length - 1; index >= 0; index--) {
 			const message = event.messages[index];
 			if (message.role !== "assistant") continue;
-			completedNormally = message.stopReason === "stop";
+			switch (message.stopReason) {
+				case "stop":
+					resultLabel = "✓ Task finished";
+					break;
+				case "error":
+					resultLabel = "✗ Task failed";
+					break;
+				case "aborted":
+					resultLabel = "■ Task interrupted";
+					break;
+			}
 			break;
 		}
-		if (!completedNormally) return;
+		if (resultLabel === undefined) return;
 
 		ctx.ui.setWidget(
-			"omp-task-timer.duration",
-			[`✓ Task finished · ${formatDuration(performance.now() - taskStartedAt)}`],
-			{ placement: "belowEditor" },
+			WIDGET_KEY,
+			[ctx.ui.theme.fg("muted", `${resultLabel} · ${formatDuration(performance.now() - taskStartedAt)}`)],
+			{ placement: "aboveEditor" },
 		);
 	});
 
