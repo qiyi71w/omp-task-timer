@@ -93,7 +93,7 @@ omp
 - RPC、headless print/JSON、ACP 和直接 SDK 会话仅在 OMP 的主会话专属 `session_stop` 确认身份后发送。新会话的取消路径可能不触发该 hook，因此会安全抑制。
 - task 子代理得不到主会话身份确认，不会发送通知。插件不会用 UI 可用性、PID 或目录猜测身份。
 
-配套的 Discord + Telegram 独立 Cloudflare Worker 网关见 [`cf-notify-gateway`](https://github.com/qiyi71w/omp-task-timer/blob/main/cf-notify-gateway/README.zh-CN.md)。
+配套的独立 Cloudflare Worker 网关 [`cf-notify-gateway`](https://github.com/qiyi71w/omp-task-timer/blob/main/cf-notify-gateway/README.zh-CN.md) 可启用 Discord、Telegram 或两者。
 
 ## 管理插件
 

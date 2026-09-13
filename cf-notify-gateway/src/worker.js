@@ -242,11 +242,14 @@ export function createNotifyGateway(options = {}) {
 			if (request.method !== "POST") {
 				return jsonResponse(405, { ok: false, error: "method_not_allowed" }, { Allow: "POST" });
 			}
+			const discordEnabled = Boolean(env.DISCORD_WEBHOOK_URL);
+			const telegramTokenConfigured = Boolean(env.TELEGRAM_BOT_TOKEN);
+			const telegramChatConfigured = Boolean(env.TELEGRAM_CHAT_ID);
+			const telegramEnabled = telegramTokenConfigured && telegramChatConfigured;
 			if (
 				!env.INBOUND_SECRET ||
-				!env.DISCORD_WEBHOOK_URL ||
-				!env.TELEGRAM_BOT_TOKEN ||
-				!env.TELEGRAM_CHAT_ID
+				telegramTokenConfigured !== telegramChatConfigured ||
+				(!discordEnabled && !telegramEnabled)
 			) {
 				return jsonResponse(503, { ok: false, error: "gateway_not_configured" });
 			}
@@ -286,14 +289,20 @@ export function createNotifyGateway(options = {}) {
 			const discordText = mobileText(event, DISCORD_MESSAGE_LIMIT);
 			const telegramText = mobileText(event, TELEGRAM_MESSAGE_LIMIT);
 			const [discord, telegram] = await Promise.all([
-				channelResult(deliverDiscord(fetchImpl, env.DISCORD_WEBHOOK_URL, discordText, providerTimeoutMs)),
-				channelResult(
-					deliverTelegram(fetchImpl, env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, telegramText, providerTimeoutMs),
-				),
+				discordEnabled
+					? channelResult(deliverDiscord(fetchImpl, env.DISCORD_WEBHOOK_URL, discordText, providerTimeoutMs))
+					: "disabled",
+				telegramEnabled
+					? channelResult(
+							deliverTelegram(fetchImpl, env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, telegramText, providerTimeoutMs),
+						)
+					: "disabled",
 			]);
+			const enabled = Number(discordEnabled) + Number(telegramEnabled);
 			const sent = Number(discord === "sent") + Number(telegram === "sent");
-			return jsonResponse(sent === 2 ? 200 : sent === 1 ? 207 : 502, {
-				ok: sent === 2,
+			const ok = sent === enabled;
+			return jsonResponse(ok ? 200 : sent > 0 ? 207 : 502, {
+				ok,
 				eventId: event.eventId,
 				channels: { discord, telegram },
 			});

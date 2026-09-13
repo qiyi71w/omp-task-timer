@@ -199,7 +199,27 @@ describe("Cloudflare notification gateway", () => {
 		expect(unsupportedVersion.status).toBe(400);
 		expect(providerCalls).toBe(0);
 	});
-	test("requires both configured channels before dispatch", async () => {
+	test("delivers through Telegram when Discord is disabled", async () => {
+		const requests = [];
+		const gateway = createNotifyGateway({
+			fetch: async (input, init) => {
+				requests.push(new Request(input, init));
+				return Response.json({ ok: true });
+			},
+		});
+
+		const response = await gateway.fetch(hookRequest(), { ...ENV, DISCORD_WEBHOOK_URL: "" });
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			ok: true,
+			eventId: EVENT.eventId,
+			channels: { discord: "disabled", telegram: "sent" },
+		});
+		expect(requests).toHaveLength(1);
+		expect(requests[0].url).toStartWith("https://api.telegram.org/");
+	});
+
+	test("delivers through Discord when Telegram is disabled", async () => {
 		let providerCalls = 0;
 		const gateway = createNotifyGateway({
 			fetch: async () => {
@@ -207,8 +227,33 @@ describe("Cloudflare notification gateway", () => {
 				return new Response(null, { status: 204 });
 			},
 		});
-		const response = await gateway.fetch(hookRequest(), { ...ENV, TELEGRAM_CHAT_ID: "" });
-		expect(response.status).toBe(503);
+		const response = await gateway.fetch(hookRequest(), {
+			...ENV,
+			TELEGRAM_BOT_TOKEN: "",
+			TELEGRAM_CHAT_ID: "",
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			ok: true,
+			eventId: EVENT.eventId,
+			channels: { discord: "sent", telegram: "disabled" },
+		});
+		expect(providerCalls).toBe(1);
+	});
+
+	test("rejects empty or incomplete channel configuration", async () => {
+		let providerCalls = 0;
+		const gateway = createNotifyGateway({
+			fetch: async () => {
+				providerCalls++;
+				return new Response(null, { status: 204 });
+			},
+		});
+		const disabled = { ...ENV, DISCORD_WEBHOOK_URL: "", TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "" };
+		const incomplete = { ...disabled, TELEGRAM_BOT_TOKEN: ENV.TELEGRAM_BOT_TOKEN };
+
+		expect((await gateway.fetch(hookRequest(), disabled)).status).toBe(503);
+		expect((await gateway.fetch(hookRequest(), incomplete)).status).toBe(503);
 		expect(providerCalls).toBe(0);
 	});
 

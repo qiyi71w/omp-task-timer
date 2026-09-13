@@ -142,4 +142,29 @@ describe("webhook notification client", () => {
 			channels: { discord: "sent", telegram: "failed" },
 		});
 	});
+
+	test("accepts success from a gateway with one disabled channel", async () => {
+		const result = await postTaskFinished(
+			{
+				enabled: true,
+				url: "https://notify.example/hook",
+				token: "secret token",
+				timeoutMs: 10_000,
+			},
+			EVENT,
+			async () =>
+				Response.json({
+					ok: true,
+					eventId: EVENT.eventId,
+					channels: { discord: "disabled", telegram: "sent" },
+				}),
+		);
+
+		expect(result).toEqual({
+			ok: true,
+			partial: false,
+			status: 200,
+			channels: { discord: "disabled", telegram: "sent" },
+		});
+	});
 });

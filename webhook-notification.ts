@@ -20,7 +20,7 @@ export type NotificationConfig =
 			timeoutMs: number;
 	  };
 
-export type ChannelDeliveryStatus = "sent" | "failed" | "unknown";
+export type ChannelDeliveryStatus = "sent" | "failed" | "unknown" | "disabled";
 
 export interface NotificationDeliveryResult {
 	ok: boolean;
@@ -110,7 +110,9 @@ async function readResponseBody(response: Response, signal: AbortSignal): Promis
 }
 
 function channelStatus(value: unknown): ChannelDeliveryStatus {
-	return value === "sent" || value === "failed" || value === "unknown" ? value : "unknown";
+	return value === "sent" || value === "failed" || value === "unknown" || value === "disabled"
+		? value
+		: "unknown";
 }
 
 function gatewayResult(response: Response, body: string, eventId: string): NotificationDeliveryResult {
@@ -129,12 +131,25 @@ function gatewayResult(response: Response, body: string, eventId: string): Notif
 		telegram: channelStatus(channelRecord && "telegram" in channelRecord ? channelRecord.telegram : undefined),
 	};
 	const correlated = record !== undefined && "eventId" in record && record.eventId === eventId;
+	const enabledCount = Number(channels.discord !== "disabled") + Number(channels.telegram !== "disabled");
 	const sentCount = Number(channels.discord === "sent") + Number(channels.telegram === "sent");
 	const ok = Boolean(
-		response.status === 200 && correlated && record && "ok" in record && record.ok === true && sentCount === 2,
+		response.status === 200 &&
+			correlated &&
+			record &&
+			"ok" in record &&
+			record.ok === true &&
+			enabledCount > 0 &&
+			sentCount === enabledCount,
 	);
 	const partial = Boolean(
-		response.status === 207 && correlated && record && "ok" in record && record.ok === false && sentCount === 1,
+		response.status === 207 &&
+			correlated &&
+			record &&
+			"ok" in record &&
+			record.ok === false &&
+			sentCount > 0 &&
+			sentCount < enabledCount,
 	);
 	return { ok, partial, status: response.status, channels };
 }

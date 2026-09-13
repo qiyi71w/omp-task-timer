@@ -1,3 +1,4 @@
 node_modules/
 cf-notify-gateway/.dev.vars*
 cf-notify-gateway/.wrangler/
+.env.notify

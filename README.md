@@ -93,7 +93,7 @@ The plugin sends `POST` JSON with this versioned shape:
 - RPC, headless print/JSON, ACP, and direct SDK sessions deliver only after OMP's main-only `session_stop` confirms identity. A fresh session's cancellation may not emit that hook and is deliberately suppressed.
 - Task subagents never receive main-session identity confirmation and do not notify. The plugin does not infer identity from UI availability, PID, or directory.
 
-[`cf-notify-gateway`](https://github.com/qiyi71w/omp-task-timer/tree/main/cf-notify-gateway) is the matching standalone Cloudflare Worker gateway for Discord and Telegram.
+[`cf-notify-gateway`](https://github.com/qiyi71w/omp-task-timer/tree/main/cf-notify-gateway) is the matching standalone Cloudflare Worker gateway for Discord, Telegram, or both.
 
 ## Manage the plugin
 
