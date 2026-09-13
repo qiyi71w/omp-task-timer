@@ -8,6 +8,8 @@ A dependency-free Cloudflare Worker that accepts the versioned `task.finished` w
 
 The focused suite uses in-memory provider mocks and makes no Discord or Telegram requests:
 
+Telegram delivery has been verified end to end against the deployed Worker. Discord delivery is covered by provider contract tests but has not yet been verified with a real Discord webhook.
+
 ```bash
 cd cf-notify-gateway
 bun test

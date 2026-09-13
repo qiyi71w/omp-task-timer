@@ -1,6 +1,6 @@
 {
   "name": "omp-task-timer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Show elapsed time and outcome for Oh My Pi tasks.",
   "type": "module",
   "license": "MIT",

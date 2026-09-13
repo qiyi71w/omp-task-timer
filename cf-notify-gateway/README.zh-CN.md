@@ -8,6 +8,8 @@
 
 聚焦测试使用内存 provider mock，不会请求 Discord 或 Telegram：
 
+Telegram 已通过部署后的 Worker 完成端到端实机验证。Discord 发送路径已由 provider 契约测试覆盖，但尚未使用真实 Discord Webhook 完成端到端验证。
+
 ```bash
 cd cf-notify-gateway
 bun test
