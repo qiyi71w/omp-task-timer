@@ -8,6 +8,12 @@ const TELEGRAM_MESSAGE_LIMIT = 4_096;
 const DEFAULT_PROVIDER_TIMEOUT_MS = 5_000;
 const JSON_CONTENT_TYPE = /^\s*application\/json\s*(?:;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+\s*=\s*(?:[!#$%&'*+.^_`|~0-9A-Za-z-]+|"(?:[\t !#-\[\]-~]|\\[\t !-~])*")\s*)*$/i;
 const STATUS_VALUES = { completed: true, failed: true, cancelled: true, unknown: true };
+const STATUS_SUMMARIES = {
+	completed: "✅ Task finished",
+	failed: "❌ Task failed",
+	cancelled: "⏹ Task interrupted",
+	unknown: "❔ Task ended",
+};
 const EVENT_FIELDS = {
 	schemaVersion: true,
 	eventId: true,
@@ -142,9 +148,8 @@ function truncateField(value, limit) {
 }
 
 function mobileText(event, limit) {
-	const duration = `Duration: ${formatDuration(event.durationMs)}`;
-	const status = `Status: ${event.status}`;
-	const fieldBudget = Math.max(0, limit - "Task: ".length - "Directory: ".length - duration.length - status.length - 3);
+	const summary = `${STATUS_SUMMARIES[event.status]} · ${formatDuration(event.durationMs)}`;
+	const fieldBudget = Math.max(0, limit - summary.length - "Task: ".length - "Directory: ".length - 2);
 	let titleBudget = Math.floor(fieldBudget / 2);
 	let directoryBudget = fieldBudget - titleBudget;
 	if (event.title.length < titleBudget) {
@@ -155,10 +160,9 @@ function mobileText(event, limit) {
 		directoryBudget = event.directory.length;
 	}
 	return [
+		summary,
 		`Task: ${truncateField(event.title, titleBudget)}`,
 		`Directory: ${truncateField(event.directory, directoryBudget)}`,
-		duration,
-		status,
 	].join("\n");
 }
 

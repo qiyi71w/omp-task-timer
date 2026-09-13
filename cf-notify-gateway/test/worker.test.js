@@ -44,10 +44,9 @@ describe("Cloudflare notification gateway", () => {
 
 		const response = await gateway.fetch(hookRequest(), ENV);
 		const expectedText = [
+			"✅ Task finished · 1m 0s",
 			"Task: Keep title — 原样",
 			"Directory: /work/项目",
-			"Duration: 1m 0s",
-			"Status: completed",
 		].join("\n");
 
 		expect(response.status).toBe(200);
@@ -257,6 +256,31 @@ describe("Cloudflare notification gateway", () => {
 		expect(providerCalls).toBe(0);
 	});
 
+	test("opens each notification with its status and duration", async () => {
+		const summaries = {
+			completed: "✅ Task finished · 12s",
+			failed: "❌ Task failed · 12s",
+			cancelled: "⏹ Task interrupted · 12s",
+			unknown: "❔ Task ended · 12s",
+		};
+		for (const [status, expectedSummary] of Object.entries(summaries)) {
+			let content;
+			const gateway = createNotifyGateway({
+				fetch: async (input, init) => {
+					content = (await new Request(input, init).json()).content;
+					return new Response(null, { status: 204 });
+				},
+			});
+			const response = await gateway.fetch(
+				hookRequest(ENV.INBOUND_SECRET, { ...EVENT, durationMs: 12_000, status }),
+				{ ...ENV, TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "" },
+			);
+
+			expect(response.status).toBe(200);
+			expect(content.split("\n")[0]).toBe(expectedSummary);
+		}
+	});
+
 	test("truncates only display fields within each provider limit", async () => {
 		const contents = [];
 		const gateway = createNotifyGateway({
@@ -281,8 +305,7 @@ describe("Cloudflare notification gateway", () => {
 		expect(contents[0].length).toBeLessThanOrEqual(2_000);
 		expect(contents[1].length).toBeLessThanOrEqual(4_096);
 		for (const content of contents) {
-			expect(content).toContain("Duration: 1m 0s");
-			expect(content).toContain("Status: cancelled");
+			expect(content).toContain("⏹ Task interrupted · 1m 0s");
 			expect(content).not.toContain("�");
 		}
 	});

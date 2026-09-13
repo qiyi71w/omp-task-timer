@@ -75,14 +75,15 @@ Content-Type: application/json
 
 ## 手机通知内容
 
-每个已启用通道都收到同一纯文本，不使用 Markdown，也不调用模型改写：
+每个已启用通道都收到同一纯文本。首行合并最终状态和耗时，后续行保留当前任务标题与目录；不使用 Markdown，也不调用模型改写：
 
 ```text
+✅ Task finished · 1m 0s
 Task: 当前会话标题
 Directory: /work/project
-Duration: 1m 0s
-Status: completed
 ```
+
+其余状态摘要分别为 `❌ Task failed`、`⏹ Task interrupted` 和 `❔ Task ended`。
 
 Discord mentions 已禁用。手机通知不包含 provider 凭据或协议元数据。
 

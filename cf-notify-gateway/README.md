@@ -75,14 +75,15 @@ Body schema version 1:
 
 ## Mobile message
 
-Each enabled channel receives the same plain text. No Markdown or model rewriting is applied:
+Each enabled channel receives the same plain text. The first line combines the terminal status and duration; the remaining lines preserve the current task title and directory. No Markdown or model rewriting is applied:
 
 ```text
+✅ Task finished · 1m 0s
 Task: Current session title
 Directory: /work/project
-Duration: 1m 0s
-Status: completed
 ```
+
+The other status summaries are `❌ Task failed`, `⏹ Task interrupted`, and `❔ Task ended`.
 
 Discord mentions are disabled. Provider credentials and protocol metadata are not included in the mobile message.
 
