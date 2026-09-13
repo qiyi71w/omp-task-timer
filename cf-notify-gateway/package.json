@@ -1,0 +1,11 @@
+{
+  "name": "cf-notify-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy"
+  }
+}

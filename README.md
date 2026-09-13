@@ -47,6 +47,54 @@ The entire result uses the active OMP theme's `muted` text color.
 > [!NOTE]
 > The result appears only when the active OMP mode provides UI widgets.
 
+## Optional webhook notifications
+
+Webhook delivery is off by default. Configure all required values in the environment that starts OMP:
+
+| Variable | Meaning |
+| --- | --- |
+| `OMP_NOTIFY_ENABLED` | Enable with `1`, `true`, `yes`, or `on`. Default: disabled. |
+| `OMP_NOTIFY_URL` | Full gateway endpoint URL, normally `https://<worker>.<account>.workers.dev/hook`. |
+| `OMP_NOTIFY_TOKEN` | Bearer token accepted by the gateway; use the same value as its `INBOUND_SECRET`. |
+
+```bash
+export OMP_NOTIFY_ENABLED=true
+export OMP_NOTIFY_URL=https://cf-notify-gateway.example.workers.dev/hook
+export OMP_NOTIFY_TOKEN='replace-with-a-long-random-secret'
+omp
+```
+
+The timer freezes one result snapshot when the logical main-session task settles. Automatic continuations (`agent_end.willContinue`) remain part of the same task. The fixed threshold compares the original millisecond duration, so `59999` ms is suppressed and `60000` ms is delivered. Completion, failure, and cancellation use the same threshold.
+The 60-second notification threshold is fixed and cannot be lowered or raised through configuration.
+
+
+The title is the owning session's current title at settlement and is not rewritten; if OMP has no title, network delivery is safely suppressed. The directory is captured with the task timer. The webhook request has a 10-second total timeout, including response-body reading. Delivery runs outside the task settlement path; timeout, network, gateway, and logging failures cannot change the task result or remove the local timer UI.
+
+The plugin sends `POST` JSON with this versioned shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "eventId": "<unique-id>",
+  "event": "task.finished",
+  "source": "omp",
+  "title": "Current session title",
+  "directory": "/work/project",
+  "durationMs": 60000,
+  "status": "completed"
+}
+```
+
+`status` is `completed`, `failed`, `cancelled`, or `unknown`. `completed` means the OMP agent loop ended normally; it does not assert that a build, test suite, or other command succeeded.
+
+### Supported OMP modes
+
+- OMP 18.1.19 TUI main sessions are identified by their external interactive-input lifecycle, including cancellation paths.
+- RPC, headless print/JSON, ACP, and direct SDK sessions deliver only after OMP's main-only `session_stop` confirms identity. A fresh session's cancellation may not emit that hook and is deliberately suppressed.
+- Task subagents never receive main-session identity confirmation and do not notify. The plugin does not infer identity from UI availability, PID, or directory.
+
+[`cf-notify-gateway`](https://github.com/qiyi71w/omp-task-timer/tree/main/cf-notify-gateway) is the matching standalone Cloudflare Worker gateway for Discord and Telegram.
+
 ## Manage the plugin
 
 Update:
@@ -69,8 +117,8 @@ cd omp-task-timer
 omp plugin link .
 ```
 
-Restart OMP, then run any task in the TUI to check the extension. The package ships one TypeScript file and has no runtime dependencies.
+Restart OMP, then run any task in the TUI to check the extension. The plugin ships two TypeScript runtime files and has no runtime dependencies. Run `bun test` for the focused behavior suite.
 
 ## Compatibility
 
-Tested with OMP 18.1.11.
+Tested against the local OMP 18.1.19 extension lifecycle.
