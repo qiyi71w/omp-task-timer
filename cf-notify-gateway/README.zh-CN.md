@@ -2,13 +2,13 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-一个无依赖的 Cloudflare Worker：接收版本化 `task.finished` Webhook，并向 Discord、Telegram 或两者发送同一条纯文本通知；两者同时启用时并行发送。它不依赖 OMP，任何实现下述协议的发送端都可复用。
+一个无依赖的 Cloudflare Worker：接收版本化 `task.finished` 和 `task.waiting_for_input` Webhook，并向 Discord、Telegram 或两者发送同一条纯文本通知；两者同时启用时并行发送。它不依赖 OMP，任何实现下述协议的发送端都可复用。
 
 ## 本地开发
 
 聚焦测试使用内存 provider mock，不会请求 Discord 或 Telegram：
 
-Telegram 已通过部署后的 Worker 完成端到端实机验证。Discord 发送路径已由 provider 契约测试覆盖，但尚未使用真实 Discord Webhook 完成端到端验证。
+任务结束的 Telegram 通知此前已通过部署后的 Worker 完成实机验证。等待回答提醒及 Discord 发送由本地 provider 契约检查覆盖，尚未完成真实通道验收。
 
 ```bash
 cd cf-notify-gateway
@@ -49,6 +49,8 @@ bun run deploy
 
 部署后，发送端 URL 配置为 `https://<worker>.<account>.workers.dev/hook`。
 
+请先升级网关，再启用发送端的等待回答提醒。新版网关继续接受原有任务结束事件；旧网关会以 `400 invalid_event` 拒绝 `task.waiting_for_input`。无需新增 secret。
+
 ## 请求协议
 
 向 `/hook` 发送 `POST`，请求头：
@@ -73,11 +75,13 @@ Content-Type: application/json
 }
 ```
 
-`status` 必须是 `completed`、`failed`、`cancelled` 或 `unknown`。`durationMs` 必须是有限的非负数，且不大于 `Number.MAX_SAFE_INTEGER`。请求体上限 32 KiB；event ID、标题和目录分别最多 128、4096 和 8192 个 JavaScript code unit。超过通道消息上限时只截断标题和目录，始终保留耗时与状态。
+`task.finished` 的 `status` 必须为 `completed`、`failed`、`cancelled` 或 `unknown`，`durationMs` 表示任务耗时。`task.waiting_for_input` 的 `status` 必须为 `waiting_for_input`，`durationMs` 表示本次 ask 调用开始后已等待的时长。事件与状态不匹配、未知事件或多余字段都会被拒绝。发送端负责 60 秒等待期限及取消；网关立即投递已接受的事件，不跟踪问题是否已回答。
+
+`durationMs` 必须是有限的非负数，且不大于 `Number.MAX_SAFE_INTEGER`。请求体上限 32 KiB；event ID、标题和目录分别最多 128、4096 和 8192 个 JavaScript code unit。超过通道消息上限时只截断标题和目录，始终保留耗时与状态。
 
 ## 手机通知内容
 
-每个已启用通道都收到同一纯文本。首行合并最终状态和耗时，后续行保留当前任务标题与目录；不使用 Markdown，也不调用模型改写：
+每个已启用通道都收到同一纯文本。首行合并状态和耗时，后续行保留当前任务标题与目录；不使用 Markdown，也不调用模型改写：
 
 ```text
 ✅ Task finished · 1m 0s
@@ -86,6 +90,8 @@ Directory: /work/project
 ```
 
 其余状态摘要分别为 `❌ Task failed`、`⏹ Task interrupted` 和 `❔ Task ended`。
+
+等待回答提醒的首行为 `Waiting for your answer · 1m 0s`，后续标题和目录行保持相同格式，不包含问题或答案。
 
 Discord mentions 已禁用。手机通知不包含 provider 凭据或协议元数据。
 
@@ -106,7 +112,7 @@ Discord mentions 已禁用。手机通知不包含 provider 凭据或协议元�
 
 响应只暴露各通道的 `sent`/`failed`/`unknown`/`disabled` 状态，不返回 provider 响应体或 secret。`disabled` 表示该通道未配置；`unknown` 表示请求可能已到达 provider，但超时、网络失败或无效确认使网关无法证明结果。
 
-网关采用 best-effort 语义：没有队列、重试循环或持久化 `eventId` 去重。OMP 发送端会阻止同一进程内的一次任务重复结算；其他发送端如需重试，应自行定义幂等策略。
+网关采用 best-effort 语义：没有队列、重试循环或持久化 `eventId` 去重。OMP 发送端会阻止同一运行中任务的重复结算及同一次 ask 的重复提醒；其他发送端如需重试，应自行定义幂等策略。
 
 ## 测试
 

@@ -1,21 +1,25 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
 	loadNotificationConfig,
-	postTaskFinished,
+	postNotification,
 	type NotificationConfig,
 	type NotificationDeliveryResult,
+	type NotificationEvent,
 	type TaskFinishedEvent,
 	type TaskFinishedStatus,
+	type TaskWaitingEvent,
 } from "./webhook-notification.ts";
 
 const WIDGET_KEY = "omp-task-timer.duration";
 const MINIMUM_NOTIFICATION_DURATION_MS = 60_000;
+const ASK_REMINDER_DELAY_MS = 60_000;
 
 export interface TaskDurationDependencies {
 	now(): number;
 	newEventId(): string;
 	config: NotificationConfig;
-	post(event: Readonly<TaskFinishedEvent>): Promise<NotificationDeliveryResult>;
+	schedule(callback: () => void, delayMs: number): () => void;
+	post(event: Readonly<NotificationEvent>): Promise<NotificationDeliveryResult>;
 }
 
 interface ActiveTask {
@@ -44,6 +48,12 @@ export function registerTaskDuration(
 ): void {
 	let active: ActiveTask | undefined;
 	let confirmedMainSessionId: string | undefined;
+	// Keep settled call IDs until task end so repeated lifecycle events cannot re-arm them.
+	const askReminders = new Map<string, (() => void) | undefined>();
+	const clearAskReminders = (): void => {
+		for (const cancel of askReminders.values()) cancel?.();
+		askReminders.clear();
+	};
 
 	const warn = (message: string, details?: Record<string, unknown>): void => {
 		try {
@@ -52,7 +62,22 @@ export function registerTaskDuration(
 			// Logging must not turn a notification failure into a session failure.
 		}
 	};
+	const send = (snapshot: Readonly<NotificationEvent>): void => {
+		void Promise.resolve()
+			.then(() => dependencies.post(snapshot))
+			.then(result => {
+				if (!result.ok) {
+					warn("Task webhook delivery was not fully successful", {
+						status: result.status,
+						partial: result.partial,
+						channels: result.channels,
+					});
+				}
+			})
+			.catch(() => warn("Task webhook delivery failed"));
+	};
 	const resetSession = (): void => {
+		clearAskReminders();
 		active = undefined;
 		confirmedMainSessionId = undefined;
 	};
@@ -67,7 +92,10 @@ export function registerTaskDuration(
 	pi.on("before_agent_start", (_event, ctx) => {
 		if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
 		const sessionId = currentSessionId(ctx);
-		if (active?.sessionId !== sessionId) active = undefined;
+		if (active?.sessionId !== sessionId) {
+			clearAskReminders();
+			active = undefined;
+		}
 		if (!active) {
 			active = {
 				sessionId,
@@ -84,6 +112,7 @@ export function registerTaskDuration(
 	pi.on("agent_start", (_event, ctx) => {
 		const sessionId = currentSessionId(ctx);
 		if (active?.sessionId !== sessionId) {
+			clearAskReminders();
 			active = {
 				sessionId,
 				directory: ctx.cwd,
@@ -94,6 +123,46 @@ export function registerTaskDuration(
 		}
 		if (active.startedAt === undefined) active.startedAt = active.pendingStartedAt ?? dependencies.now();
 		active.pendingStartedAt = undefined;
+	});
+
+	pi.on("tool_execution_start", (event, ctx) => {
+		const task = active;
+		if (
+			event.toolName !== "ask" || !dependencies.config.enabled ||
+			!task?.mainSessionConfirmed || task.startedAt === undefined ||
+			task.sessionId !== currentSessionId(ctx) || askReminders.has(event.toolCallId)
+		) return;
+
+		const startedAt = dependencies.now();
+		const cancel = dependencies.schedule(() => {
+			if (askReminders.get(event.toolCallId) !== cancel) return;
+			askReminders.set(event.toolCallId, undefined);
+			try {
+				if (active !== task || task.sessionId !== currentSessionId(ctx)) return;
+				const title = ctx.sessionManager.getSessionName();
+				if (title === undefined) return;
+				send(Object.freeze<TaskWaitingEvent>({
+					schemaVersion: 1,
+					eventId: dependencies.newEventId(),
+					event: "task.waiting_for_input",
+					source: "omp",
+					title,
+					directory: task.directory,
+					durationMs: Math.max(0, dependencies.now() - startedAt),
+					status: "waiting_for_input",
+				}));
+			} catch {
+				warn("Task webhook snapshot could not be created");
+			}
+		}, ASK_REMINDER_DELAY_MS);
+		askReminders.set(event.toolCallId, cancel);
+	});
+
+	pi.on("tool_execution_end", (event, ctx) => {
+		if (event.toolName !== "ask" || active?.sessionId !== currentSessionId(ctx)) return;
+		if (!askReminders.has(event.toolCallId)) return;
+		askReminders.get(event.toolCallId)?.();
+		askReminders.set(event.toolCallId, undefined);
 	});
 
 	// OMP 18.1.x emits this only for the main session, immediately before the
@@ -108,6 +177,7 @@ export function registerTaskDuration(
 	pi.on("agent_end", (event, ctx) => {
 		if (event.willContinue) return;
 
+		clearAskReminders();
 		const settled = active;
 		active = undefined;
 		if (!settled || settled.startedAt === undefined || settled.sessionId !== currentSessionId(ctx)) return;
@@ -165,18 +235,7 @@ export function registerTaskDuration(
 				durationMs,
 				status,
 			});
-			void Promise.resolve()
-				.then(() => dependencies.post(snapshot))
-				.then(result => {
-					if (!result.ok) {
-						warn("Task webhook delivery was not fully successful", {
-							status: result.status,
-							partial: result.partial,
-							channels: result.channels,
-						});
-					}
-				})
-				.catch(() => warn("Task webhook delivery failed"));
+			send(snapshot);
 		} catch {
 			warn("Task webhook snapshot could not be created");
 		}
@@ -201,10 +260,15 @@ export default function taskDuration(pi: ExtensionAPI): void {
 	registerTaskDuration(pi, {
 		now: () => performance.now(),
 		newEventId: () => crypto.randomUUID(),
+		schedule(callback, delayMs) {
+			const timer = setTimeout(callback, delayMs);
+			timer.unref?.();
+			return () => clearTimeout(timer);
+		},
 		config,
 		post: event => {
 			if (!config.enabled) return Promise.reject(new Error("Task webhook is disabled"));
-			return postTaskFinished(config, event);
+			return postNotification(config, event);
 		},
 	});
 }
