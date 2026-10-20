@@ -8,7 +8,7 @@ A dependency-free Cloudflare Worker that accepts versioned `task.finished` and `
 
 The focused suite uses in-memory provider mocks and makes no Discord or Telegram requests:
 
-Task-finished Telegram delivery was previously verified against the deployed Worker. Waiting reminders and Discord delivery are covered by local provider contract checks, not real-provider acceptance.
+Task-finished and waiting-reminder Telegram delivery have been verified through the deployed Worker. The waiting reminder was exercised from an OMP 18.12.3 TUI `ask` dialog using a deterministic local model endpoint. Discord delivery is covered by local provider contract checks, not real-provider acceptance.
 
 ```bash
 cd cf-notify-gateway

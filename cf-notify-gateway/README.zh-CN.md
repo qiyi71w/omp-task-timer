@@ -8,7 +8,7 @@
 
 聚焦测试使用内存 provider mock，不会请求 Discord 或 Telegram：
 
-任务结束的 Telegram 通知此前已通过部署后的 Worker 完成实机验证。等待回答提醒及 Discord 发送由本地 provider 契约检查覆盖，尚未完成真实通道验收。
+任务结束及等待回答的 Telegram 通知均已通过部署后的 Worker 完成实机验证。等待提醒使用确定性的本地模型端点，在 OMP 18.12.3 TUI 的真实 `ask` 对话框中验证。Discord 发送由本地 provider 契约检查覆盖，尚未完成真实通道验收。
 
 ```bash
 cd cf-notify-gateway
