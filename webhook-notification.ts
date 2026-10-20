@@ -1,15 +1,25 @@
 export type TaskFinishedStatus = "completed" | "failed" | "cancelled" | "unknown";
 
-export interface TaskFinishedEvent {
+interface NotificationFields {
 	schemaVersion: 1;
 	eventId: string;
-	event: "task.finished";
 	source: "omp";
 	title: string;
 	directory: string;
 	durationMs: number;
+}
+
+export interface TaskFinishedEvent extends NotificationFields {
+	event: "task.finished";
 	status: TaskFinishedStatus;
 }
+
+export interface TaskWaitingEvent extends NotificationFields {
+	event: "task.waiting_for_input";
+	status: "waiting_for_input";
+}
+
+export type NotificationEvent = TaskFinishedEvent | TaskWaitingEvent;
 
 export type NotificationConfig =
 	| { enabled: false }
@@ -154,9 +164,9 @@ function gatewayResult(response: Response, body: string, eventId: string): Notif
 	return { ok, partial, status: response.status, channels };
 }
 
-export async function postTaskFinished(
+export async function postNotification(
 	config: Extract<NotificationConfig, { enabled: true }>,
-	event: Readonly<TaskFinishedEvent>,
+	event: Readonly<NotificationEvent>,
 	fetchImpl: WebhookFetch = fetch,
 ): Promise<NotificationDeliveryResult> {
 	const controller = new AbortController();

@@ -2,13 +2,13 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-A dependency-free Cloudflare Worker that accepts the versioned `task.finished` webhook and sends one plain-text notification to Discord, Telegram, or both. When both are enabled, delivery starts in parallel. It is independent of OMP and can be reused by any sender that implements the protocol below.
+A dependency-free Cloudflare Worker that accepts versioned `task.finished` and `task.waiting_for_input` webhooks and sends one plain-text notification to Discord, Telegram, or both. When both are enabled, delivery starts in parallel. It is independent of OMP and can be reused by any sender that implements the protocol below.
 
 ## Local development
 
 The focused suite uses in-memory provider mocks and makes no Discord or Telegram requests:
 
-Telegram delivery has been verified end to end against the deployed Worker. Discord delivery is covered by provider contract tests but has not yet been verified with a real Discord webhook.
+Task-finished and waiting-reminder Telegram delivery have been verified through the deployed Worker. The waiting reminder was exercised from an OMP 18.12.3 TUI `ask` dialog using a deterministic local model endpoint. Discord delivery is covered by local provider contract checks, not real-provider acceptance.
 
 ```bash
 cd cf-notify-gateway
@@ -49,6 +49,8 @@ Do not put secret values in `wrangler.toml` or commit them.
 
 After deployment, configure the sender's URL as `https://<worker>.<account>.workers.dev/hook`.
 
+Upgrade the gateway before enabling waiting reminders in a sender. This version continues to accept existing task-finished events; older gateways reject `task.waiting_for_input` with `400 invalid_event`. No new secrets are needed.
+
 ## Request protocol
 
 `POST /hook` with these headers:
@@ -73,11 +75,13 @@ Body schema version 1:
 }
 ```
 
-`status` must be `completed`, `failed`, `cancelled`, or `unknown`. `durationMs` must be a finite non-negative number no greater than `Number.MAX_SAFE_INTEGER`. The gateway accepts request bodies up to 32 KiB, event IDs up to 128 code units, titles up to 4096, and directories up to 8192. Provider messages truncate only title and directory as needed; duration and status are always retained.
+For `task.finished`, `status` must be `completed`, `failed`, `cancelled`, or `unknown`, and `durationMs` is the task duration. For `task.waiting_for_input`, `status` must be `waiting_for_input`, and `durationMs` is the elapsed time since that ask call started. Event/status mismatches, unknown events, and extra fields are rejected. The sender owns the 60-second waiting deadline and cancellation; the gateway immediately delivers accepted events and does not track unanswered questions.
+
+`durationMs` must be a finite non-negative number no greater than `Number.MAX_SAFE_INTEGER`. The gateway accepts request bodies up to 32 KiB, event IDs up to 128 code units, titles up to 4096, and directories up to 8192. Provider messages truncate only title and directory as needed; duration and status are always retained.
 
 ## Mobile message
 
-Each enabled channel receives the same plain text. The first line combines the terminal status and duration; the remaining lines preserve the current task title and directory. No Markdown or model rewriting is applied:
+Each enabled channel receives the same plain text. The first line combines the status and duration; the remaining lines preserve the current task title and directory. No Markdown or model rewriting is applied:
 
 ```text
 ✅ Task finished · 1m 0s
@@ -86,6 +90,8 @@ Directory: /work/project
 ```
 
 The other status summaries are `❌ Task failed`, `⏹ Task interrupted`, and `❔ Task ended`.
+
+Waiting reminders start with `Waiting for your answer · 1m 0s` and retain the same title and directory lines. Questions and answers are not included.
 
 Discord mentions are disabled. Provider credentials and protocol metadata are not included in the mobile message.
 
@@ -106,7 +112,7 @@ Enabled channels start concurrently. Each request has an independent 5-second ti
 
 Responses expose only `sent`/`failed`/`unknown`/`disabled` channel states, never provider response bodies or secrets. `disabled` means that channel is not configured. `unknown` means the request may have reached the provider but a timeout, network failure, or malformed confirmation prevented proof.
 
-The gateway is best-effort: it has no queue, retry loop, or durable `eventId` deduplication. The OMP sender prevents duplicate settlement within its live task, but callers that retry must own their idempotency policy.
+The gateway is best-effort: it has no queue, retry loop, or durable `eventId` deduplication. The OMP sender prevents duplicate settlement and repeated reminders for the same ask call within its live task, but callers that retry must own their idempotency policy.
 
 ## Test
 

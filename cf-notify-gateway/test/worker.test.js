@@ -63,6 +63,44 @@ describe("Cloudflare notification gateway", () => {
 		expect(await telegram.json()).toEqual({ chat_id: ENV.TELEGRAM_CHAT_ID, text: expectedText });
 	});
 
+	test("delivers waiting reminders without exposing questions or treating them as task completion", async () => {
+		const messages = [];
+		const gateway = createNotifyGateway({
+			fetch: async (input, init) => {
+				const body = await new Request(input, init).json();
+				messages.push(body.text ?? body.content);
+				return Response.json({ ok: true });
+			},
+		});
+		const response = await gateway.fetch(hookRequest(ENV.INBOUND_SECRET, {
+			...EVENT, event: "task.waiting_for_input", status: "waiting_for_input",
+		}), ENV);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			ok: true, eventId: EVENT.eventId, channels: { discord: "sent", telegram: "sent" },
+		});
+		expect(messages).toEqual([
+			"Waiting for your answer · 1m 0s\nTask: Keep title — 原样\nDirectory: /work/项目",
+			"Waiting for your answer · 1m 0s\nTask: Keep title — 原样\nDirectory: /work/项目",
+		]);
+	});
+
+	test("rejects mismatched event statuses and private extra fields before provider dispatch", async () => {
+		let calls = 0;
+		const gateway = createNotifyGateway({ fetch: async () => { calls++; return Response.json({ ok: true }); } });
+		for (const patch of [
+			{ event: "task.waiting_for_input", status: "completed" },
+			{ event: "task.finished", status: "waiting_for_input" },
+			{ event: "unknown", status: "completed" },
+			{ event: "task.waiting_for_input", status: { toString: null } },
+			{ event: "task.waiting_for_input", status: "waiting_for_input", questions: ["private"] },
+		]) {
+			const response = await gateway.fetch(hookRequest(ENV.INBOUND_SECRET, { ...EVENT, ...patch }), ENV);
+			expect(response.status).toBe(400);
+		}
+		expect(calls).toBe(0);
+	});
+
 	test("runs channels concurrently and reports Telegram ok false as partial delivery", async () => {
 		const release = Promise.withResolvers();
 		const bothStarted = Promise.withResolvers();

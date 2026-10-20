@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	loadNotificationConfig,
-	postTaskFinished,
+	postNotification,
 	type TaskFinishedEvent,
 	type WebhookFetch,
 } from "../webhook-notification.ts";
@@ -74,7 +74,7 @@ describe("webhook notification client", () => {
 			);
 		};
 
-		const result = await postTaskFinished(
+		const result = await postNotification(
 			{
 				enabled: true,
 				url: "https://notify.example/hook",
@@ -103,7 +103,7 @@ describe("webhook notification client", () => {
 		const fetchImpl: WebhookFetch = async () => new Response(hangingBody, { status: 200 });
 
 		await expect(
-			postTaskFinished(
+			postNotification(
 				{
 					enabled: true,
 					url: "https://notify.example/hook",
@@ -124,7 +124,7 @@ describe("webhook notification client", () => {
 				channels: { discord: "sent", telegram: "failed" },
 			});
 
-		const result = await postTaskFinished(
+		const result = await postNotification(
 			{
 				enabled: true,
 				url: "https://notify.example/hook",
@@ -144,7 +144,7 @@ describe("webhook notification client", () => {
 	});
 
 	test("accepts success from a gateway with one disabled channel", async () => {
-		const result = await postTaskFinished(
+		const result = await postNotification(
 			{
 				enabled: true,
 				url: "https://notify.example/hook",

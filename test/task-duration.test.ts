@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { registerTaskDuration, type TaskDurationDependencies } from "../task-duration.ts";
-import type { NotificationConfig, TaskFinishedEvent } from "../webhook-notification.ts";
+import type { NotificationConfig, NotificationEvent } from "../webhook-notification.ts";
 
 interface TestContext {
 	hasUI: boolean;
@@ -19,10 +19,11 @@ type Handler = (event: Record<string, unknown>, context: TestContext) => unknown
 
 interface TimerHarness {
 	emit(name: string, event?: Record<string, unknown>): Promise<void>;
-	notifications: TaskFinishedEvent[];
+	notifications: NotificationEvent[];
 	widgets: unknown[][];
 	failPost(): void;
 	setNow(value: number): void;
+	advance(milliseconds: number): Promise<void>;
 	setTitle(value: string | undefined): void;
 	setCwd(value: string): void;
 	setSessionId(value: string): void;
@@ -35,19 +36,28 @@ const ENABLED_CONFIG: Extract<NotificationConfig, { enabled: true }> = {
 	timeoutMs: 10_000,
 };
 
-function createHarness(initialNow = 0, initialSessionId = "main-session"): TimerHarness {
+function createHarness(
+	initialNow = 0,
+	initialSessionId = "main-session",
+	config: NotificationConfig = ENABLED_CONFIG,
+): TimerHarness {
 	const handlers = new Map<string, Handler[]>();
-	const notifications: TaskFinishedEvent[] = [];
+	const notifications: NotificationEvent[] = [];
 	const widgets: unknown[][] = [];
 	let now = initialNow;
 	let title: string | undefined = "Original Title";
 	let cwd = "/work/one";
 	let sessionId = initialSessionId;
 	let postFails = false;
+	const timers = new Map<() => void, number>();
 	const dependencies: TaskDurationDependencies = {
 		now: () => now,
 		newEventId: () => `event-${notifications.length + 1}`,
-		config: ENABLED_CONFIG,
+		schedule(callback, delayMs) {
+			timers.set(callback, now + delayMs);
+			return () => { timers.delete(callback); };
+		},
+		config,
 		post: async event => {
 			notifications.push(event);
 			if (postFails) throw new Error("simulated delivery failure");
@@ -86,6 +96,16 @@ function createHarness(initialNow = 0, initialSessionId = "main-session"): Timer
 		},
 		setNow(value: number) {
 			now = value;
+		},
+		async advance(milliseconds) {
+			now += milliseconds;
+			for (const [callback, deadline] of timers) {
+				if (deadline > now) continue;
+				timers.delete(callback);
+				callback();
+			}
+			await Promise.resolve();
+			await Promise.resolve();
 		},
 		setTitle(value: string | undefined) {
 			title = value;
@@ -273,5 +293,133 @@ describe("task duration webhook settlement", () => {
 
 		expect(harness.notifications).toHaveLength(1);
 		expect(harness.widgets.at(-1)?.[1]).toEqual(["✓ Task finished · 1m 0s"]);
+	});
+});
+
+describe("ask waiting reminders", () => {
+	test("waits 60 seconds from ask execution rather than task start and sends only once", async () => {
+		const harness = createHarness();
+		await startMainTask(harness);
+		harness.setNow(120_000);
+		await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "ask-1" });
+		await harness.advance(59_999);
+		expect(harness.notifications).toEqual([]);
+		await harness.advance(1);
+		expect(harness.notifications).toEqual([
+			expect.objectContaining({ event: "task.waiting_for_input", status: "waiting_for_input", durationMs: 60_000 }),
+		]);
+		await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "ask-1" });
+		await harness.advance(120_000);
+		expect(harness.notifications).toHaveLength(1);
+	});
+
+	test("answers and cancellations stop reminders while later asks get a fresh deadline", async () => {
+		for (const isError of [false, true]) {
+			const harness = createHarness();
+			await startMainTask(harness);
+			await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "answered" });
+			await harness.advance(59_999);
+			await harness.emit("tool_execution_end", { toolName: "ask", toolCallId: "answered", isError });
+			await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "answered" });
+			await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "next" });
+			await harness.advance(59_999);
+			expect(harness.notifications).toEqual([]);
+			await harness.advance(1);
+			expect(harness.notifications).toEqual([
+				expect.objectContaining({ event: "task.waiting_for_input", durationMs: 60_000 }),
+			]);
+		}
+	});
+
+	test("clears pending reminders on session transitions and shutdown", async () => {
+		for (const name of ["session_start", "session_switch", "session_branch", "session_tree", "session_shutdown"]) {
+			const harness = createHarness();
+			await startMainTask(harness);
+			await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "old" });
+			await harness.advance(30_000);
+			await harness.emit(name);
+			await harness.advance(60_000);
+			expect(harness.notifications).toEqual([]);
+		}
+	});
+
+	test("preserves waiting on a cancelled transition and leaves final task timing and UI intact", async () => {
+		const harness = createHarness();
+		await startMainTask(harness);
+		harness.setNow(20_000);
+		await harness.emit("tool_execution_start", {
+			toolName: "ask", toolCallId: "batch", args: { questions: [{ question: "private one" }, { question: "private two" }] },
+		});
+		await harness.emit("session_before_switch");
+		harness.setTitle("Current title");
+		await harness.advance(60_000);
+		expect(harness.notifications[0]).toEqual({
+			schemaVersion: 1, eventId: "event-1", event: "task.waiting_for_input", source: "omp",
+			title: "Current title", directory: "/work/one", durationMs: 60_000, status: "waiting_for_input",
+		});
+		expect(harness.widgets.at(-1)?.[1]).toBeUndefined();
+		await harness.emit("tool_execution_end", { toolName: "ask", toolCallId: "batch" });
+		await harness.emit("agent_end", { messages: [assistant("stop")] });
+		expect(harness.notifications).toHaveLength(2);
+		expect(harness.notifications[1]).toMatchObject({ event: "task.finished", durationMs: 80_000, status: "completed" });
+		expect(harness.widgets.at(-1)?.[1]).toEqual(["✓ Task finished · 1m 20s"]);
+	});
+
+	test("final task interruption clears an outstanding ask without its tool-end event", async () => {
+		const harness = createHarness();
+		await startMainTask(harness);
+		await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "pending" });
+		await harness.advance(30_000);
+		await harness.emit("agent_end", { messages: [assistant("aborted")] });
+		await harness.advance(60_000);
+		expect(harness.notifications).toEqual([]);
+		expect(harness.widgets.at(-1)?.[1]).toEqual(["■ Task interrupted · 30s"]);
+	});
+
+	test("does not notify for child sessions, other tools, disabled config or missing titles", async () => {
+		const child = createHarness(0, "child");
+		await child.emit("agent_start");
+		const otherTool = createHarness();
+		await startMainTask(otherTool);
+		const disabled = createHarness(0, "main-session", { enabled: false });
+		await startMainTask(disabled);
+		const untitled = createHarness();
+		await startMainTask(untitled);
+		untitled.setTitle(undefined);
+		for (const harness of [child, otherTool, disabled, untitled]) {
+			await harness.emit("tool_execution_start", { toolName: harness === otherTool ? "bash" : "ask", toolCallId: "call" });
+			await harness.advance(60_000);
+			expect(harness.notifications).toEqual([]);
+		}
+	});
+
+	test("isolates concurrent instances and rejects a pending reminder after session identity changes", async () => {
+		const first = createHarness(0, "first");
+		const second = createHarness(0, "second");
+		await startMainTask(first);
+		await startMainTask(second);
+		for (const harness of [first, second]) {
+			await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "same-id" });
+		}
+		first.setSessionId("replaced");
+		second.setTitle("Second");
+		await first.advance(60_000);
+		await second.advance(60_000);
+		expect(first.notifications).toEqual([]);
+		expect(second.notifications).toEqual([expect.objectContaining({ title: "Second", event: "task.waiting_for_input" })]);
+	});
+
+	test("failed reminder delivery does not repeat or interfere with answering and task settlement", async () => {
+		const harness = createHarness();
+		await startMainTask(harness);
+		harness.failPost();
+		await harness.emit("tool_execution_start", { toolName: "ask", toolCallId: "pending" });
+		await harness.advance(60_000);
+		await harness.advance(60_000);
+		expect(harness.notifications).toHaveLength(1);
+		await harness.emit("tool_execution_end", { toolName: "ask", toolCallId: "pending" });
+		await harness.emit("agent_end", { messages: [assistant("stop")] });
+		expect(harness.notifications.map(event => event.event)).toEqual(["task.waiting_for_input", "task.finished"]);
+		expect(harness.widgets.at(-1)?.[1]).toEqual(["✓ Task finished · 2m 0s"]);
 	});
 });

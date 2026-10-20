@@ -13,6 +13,7 @@ const STATUS_SUMMARIES = {
 	failed: "❌ Task failed",
 	cancelled: "⏹ Task interrupted",
 	unknown: "❔ Task ended",
+	waiting_for_input: "Waiting for your answer",
 };
 const EVENT_FIELDS = {
 	schemaVersion: true,
@@ -97,7 +98,11 @@ function validateEvent(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
 	const keys = Object.keys(value);
 	if (keys.length !== Object.keys(EVENT_FIELDS).length || keys.some(key => EVENT_FIELDS[key] !== true)) return undefined;
-	if (value.schemaVersion !== 1 || value.event !== "task.finished" || value.source !== "omp") return undefined;
+	if (value.schemaVersion !== 1 || value.source !== "omp" || typeof value.status !== "string") return undefined;
+	const validStatus = value.event === "task.finished"
+		? STATUS_VALUES[value.status] === true
+		: value.event === "task.waiting_for_input" && value.status === "waiting_for_input";
+	if (!validStatus) return undefined;
 	if (
 		typeof value.eventId !== "string" ||
 		value.eventId.length === 0 ||
@@ -109,16 +114,14 @@ function validateEvent(value) {
 		value.directory.length > MAX_DIRECTORY_LENGTH ||
 		!Number.isFinite(value.durationMs) ||
 		value.durationMs < 0 ||
-		value.durationMs > Number.MAX_SAFE_INTEGER ||
-		typeof value.status !== "string" ||
-		STATUS_VALUES[value.status] !== true
+		value.durationMs > Number.MAX_SAFE_INTEGER
 	) {
 		return undefined;
 	}
 	return {
 		schemaVersion: 1,
 		eventId: value.eventId,
-		event: "task.finished",
+		event: value.event,
 		source: "omp",
 		title: value.title,
 		directory: value.directory,

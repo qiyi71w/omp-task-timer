@@ -87,6 +87,17 @@ The plugin sends `POST` JSON with this versioned shape:
 
 `status` is `completed`, `failed`, `cancelled`, or `unknown`. `completed` means the OMP agent loop ended normally; it does not assert that a build, test suite, or other command succeeded.
 
+### Unanswered questions
+
+With the same notification configuration enabled, a confirmed main-session `ask` call sends one reminder if it is still running after 60 seconds. The clock starts at `tool_execution_start`, approximately when the question appears, independently of the task's total duration. Answering, cancelling, or ending the tool before the deadline cancels the reminder. Successful session transitions, session shutdown, and final task settlement also clear pending reminders; an attempted but cancelled transition does not.
+
+Each new `ask` call has its own deadline. A call containing multiple questions sends only one reminder, with no repeated nudges or automatic delivery retries. Sending does not block the question UI or change the task timer. An already-dispatched notification cannot be recalled if the user answers while delivery is in flight.
+
+The reminder uses the same envelope with `event: "task.waiting_for_input"`, `status: "waiting_for_input"`, and `durationMs` equal to the time spent waiting for that call. Only the current session title, task directory, waiting duration, and status reach the phone; questions and answers are not sent. Missing titles and unconfirmed main-session identity suppress delivery. Modes that only confirm identity at `session_stop` may not send reminders during their first task.
+
+Deploy the updated gateway **before** updating the extension: older gateways reject the new event with `400 invalid_event`. Both existing Telegram and Discord channel settings apply; no new secrets or environment variables are required. Task-finished notifications retain their separate 60-second task-duration threshold.
+
+
 ### Supported OMP modes
 
 - OMP 18.1.19 TUI main sessions are identified by their external interactive-input lifecycle, including cancellation paths.
